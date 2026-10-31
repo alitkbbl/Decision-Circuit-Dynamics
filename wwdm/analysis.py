@@ -320,7 +320,17 @@ def fit_weibull(coh, k_correct, n):
     return float(np.exp(best.x[0])), float(np.exp(best.x[1]))
 
 
-def ols(X, y, names, groups=None):
+def _folds(n, groups, shuffle_groups=False, n_folds=5):
+    """Fold labels: random observations, or whole groups held out together."""
+    if groups is None:
+        return np.random.default_rng(0).permutation(n) % n_folds
+    _, gi = np.unique(np.asarray(groups), return_inverse=True)
+    if shuffle_groups:
+        gi = np.random.default_rng(0).permutation(gi.max() + 1)[gi]
+    return gi % n_folds
+
+
+def ols(X, y, names, groups=None, shuffle_groups=False):
     """Ordinary least squares with standardised coefficients and drop-one importance.
 
     ``X`` is (n, k) without intercept.  ``groups`` (optional) makes the 5-fold cross-validation
@@ -353,17 +363,16 @@ def ols(X, y, names, groups=None):
         b_ = fit(A[:, keep], y)
         r_ = y - A[:, keep] @ b_
         drops[names[j]] = float(r2 - (1 - (r_ ** 2).sum() / ss_tot))
-    if groups is None:
-        folds = np.random.default_rng(0).permutation(n) % 5
-    else:                                  # leave-group-out: whole groups are held out together
-        _, gi = np.unique(np.asarray(groups), return_inverse=True)
-        folds = gi % 5
+    folds = _folds(n, groups, shuffle_groups)
     pred = np.empty(n)
     for f in np.unique(folds):
         tr = folds != f
         pred[~tr] = A[~tr] @ fit(A[tr], y[tr])
     cv = 1 - ((y - pred) ** 2).sum() / ss_tot
+    rss = float((res ** 2).sum())
     return dict(n=int(n), r2=float(r2), adj_r2=float(1 - (1 - r2) * (n - 1) / dof), cv_r2=float(cv),
+                rmse=float(np.sqrt(rss / n)), cv_rmse=float(np.sqrt(np.mean((y - pred) ** 2))),
+                aic=float(n * np.log(rss / n) + 2 * (k + 1)),
                 std_coef=dict(zip(names, (beta[1:] / ys).tolist())),
                 coef=dict(zip(names, (beta[1:] / np.where(sd > 0, sd, 1)).tolist())),
                 intercept=float(beta[0] - (beta[1:] / np.where(sd > 0, sd, 1) * mu).sum()),
@@ -396,7 +405,7 @@ def _irls(A, k, n, iters=60):
     return beta
 
 
-def binom_glm(X, k, n, names, groups=None):
+def binom_glm(X, k, n, names, groups=None, shuffle_groups=False):
     """Logistic (binomial) regression of counts ``k`` out of ``n`` on standardised ``X``.
 
     Returns McFadden pseudo-R^2 (``r2``), leave-group-out cross-validated pseudo-R^2
@@ -418,17 +427,49 @@ def binom_glm(X, k, n, names, groups=None):
         b_ = _irls(A[:, keep], k, n)
         p_ = 1 / (1 + np.exp(-np.clip(A[:, keep] @ b_, -30, 30)))
         drops[names[j]] = float(r2 - (1 - _binom_dev(k, n, p_) / dev0))
-    if groups is None:
-        folds = np.random.default_rng(0).permutation(len(k)) % 5
-    else:
-        _, gi = np.unique(np.asarray(groups), return_inverse=True)
-        folds = gi % 5
+    folds = _folds(len(k), groups, shuffle_groups)
     d_m = d_0 = 0.0
+    cvp = np.empty(len(k))
     for f in np.unique(folds):
         te = folds == f
         b_ = _irls(A[~te], k[~te], n[~te])
         p_ = 1 / (1 + np.exp(-np.clip(A[te] @ b_, -30, 30)))
+        cvp[te] = p_
         d_m += _binom_dev(k[te], n[te], p_)
         d_0 += _binom_dev(k[te], n[te], np.full(te.sum(), k[~te].sum() / n[~te].sum()))
-    return dict(n=int(len(k)), r2=float(r2), cv_r2=float(1 - d_m / d_0), std_coef=dict(zip(names, beta[1:].tolist())),
+    dev = _binom_dev(k, n, pr)
+    return dict(n=int(len(k)), r2=float(r2), cv_r2=float(1 - d_m / d_0),
+                rmse=float(np.sqrt(np.mean((k / n - pr) ** 2))), cv_rmse=float(np.sqrt(np.mean((k / n - cvp) ** 2))),
+                aic=float(dev + 2 * (X.shape[1] + 1)), deviance=float(dev),
+                std_coef=dict(zip(names, beta[1:].tolist())),
                 coef=dict(zip(names, (beta[1:] / sd).tolist())), drop_r2=drops, pred=pr, adj_r2=float(r2))
+
+
+def is_bistable_wta(p: Params, theta: float) -> bool:
+    """Symmetric bistable winner-take-all check at 0 % coherence (stimulus on).
+
+    True if there is a saddle on the diagonal S1 = S2 and at least two off-diagonal stable
+    states (|r1 - r2| > 5 Hz) whose winning rate exceeds the decision threshold ``theta``.
+    """
+    fps = find_fixed_points(p, 0.0, True)
+    st = [f for f in fps if f["kind"] == STABLE and abs(f["rate"][0] - f["rate"][1]) > 5.0
+          and max(f["rate"]) > theta]
+    sad = [f for f in fps if f["kind"] == SADDLE and abs(f["S"][0] - f["S"][1]) < 1e-4]
+    return len(st) >= 2 and len(sad) >= 1
+
+
+def gradient_angles(X, Y, F1, F2):
+    """Angle (degrees, folded into [0, 90]) between the gradients of two scalar fields on a
+    regular grid, computed in coordinates normalised to the unit square.
+
+    0 deg = parallel iso-contours (one scalar is a reparameterisation of the other);
+    90 deg = orthogonal (independent) iso-contours.
+    """
+    xs, ys = (X - X.min()) / np.ptp(X), (Y - Y.min()) / np.ptp(Y)
+    g1 = np.gradient(F1, xs, ys, edge_order=1)
+    g2 = np.gradient(F2, xs, ys, edge_order=1)
+    dot = g1[0] * g2[0] + g1[1] * g2[1]
+    nn = np.hypot(*g1) * np.hypot(*g2)
+    with np.errstate(invalid="ignore", divide="ignore"):
+        ang = np.degrees(np.arccos(np.clip(np.abs(dot) / nn, 0, 1)))
+    return ang

@@ -614,8 +614,155 @@ def fig_j11_sweep(R):
     save(fig, "fig8_j11_sweep")
 
 
+# --------------------------------------------------------------------------- #
+# Fig 9 - joint (J11, J12) grid
+# --------------------------------------------------------------------------- #
+
+def fig_grid2d(R):
+    G, H = R["grid2d"], R["h1_2d"]
+    J11s, J12s, sig = G["J11s"], G["J12s"], G["sigmas"]
+    fig, axs = plt.subplots(2, 3, figsize=(15.0, 8.6))
+    # (a) iso-contours of lambda_u and d
+    ax = axs[0, 0]
+    X, Y = np.meshgrid(J11s, J12s, indexing="ij")
+    pc = ax.pcolormesh(edges(J11s), edges(J12s), G["g_lam_u"].T, cmap="Blues", alpha=0.55, shading="flat")
+    c1 = ax.contour(X, Y, G["g_lam_u"], levels=np.arange(2, 9, 1), colors=BLUE, linewidths=1.4)
+    ax.clabel(c1, fmt="%g", fontsize=7.5)
+    c2 = ax.contour(X, Y, G["g_d"], levels=np.arange(0.014, 0.034, 0.004), colors=VERM, linewidths=1.4, linestyles="--")
+    ax.clabel(c2, fmt="%.3f", fontsize=7.5)
+    ax.set_xlabel(r"self-excitation $J_{11}$ (nA)")
+    ax.set_ylabel(r"cross-inhibition $J_{12}$ (nA)")
+    ax.set_title(r"Iso-contours of $\lambda_u$ (solid) and $d$ (dashed)")
+    ax.legend(handles=[Line2D([], [], color=BLUE, label=r"$\lambda_u$ (s$^{-1}$)"),
+                       Line2D([], [], color=VERM, ls="--", label=r"$d$")], frameon=False, loc="upper left",
+              fontsize=8)
+    ax.text(0.98, 0.03, rf"median angle $={H['geometry']['median_angle']:.0f}^\circ$", transform=ax.transAxes,
+            ha="right", fontsize=8.5)
+    ok = H["mask"]
+    marks = ["o", "s", "^"]
+    lam = np.repeat(G["g_lam_u"][:, :, None], len(sig), 2)
+    rt = 1000 * G["rt_corr"]
+    A, B, S = np.meshgrid(J11s, J12s, sig, indexing="ij")
+    def scat(ax, xv, cv, cmap, lab):
+        for k in range(len(sig)):
+            m = ok[:, :, k]
+            sc = ax.scatter(xv[:, :, k][m], rt[:, :, k][m], c=cv[:, :, k][m], cmap=cmap, marker=marks[k], s=32,
+                            edgecolor="k", linewidth=0.3, vmin=cv.min(), vmax=cv.max())
+        return sc
+    sc = scat(axs[0, 1], lam, A, "viridis", r"$J_{11}$")
+    axs[0, 1].set_xlabel(r"unstable eigenvalue $\lambda_u$ (s$^{-1}$)")
+    axs[0, 1].set_title(r"RT vs. $\lambda_u$ (no collapse)")
+    fig.colorbar(sc, ax=axs[0, 1], shrink=0.85).set_label(r"$J_{11}$ (nA)")
+    sc = scat(axs[0, 2], B, A, "viridis", r"$J_{11}$")
+    axs[0, 2].set_xlabel(r"cross-inhibition $J_{12}$ (nA)")
+    axs[0, 2].set_title(r"RT vs. $J_{12}$, coloured by $J_{11}$")
+    fig.colorbar(sc, ax=axs[0, 2], shrink=0.85).set_label(r"$J_{11}$ (nA)")
+    sc = scat(axs[1, 0], A, B, "magma", r"$J_{12}$")
+    axs[1, 0].set_xlabel(r"self-excitation $J_{11}$ (nA)")
+    axs[1, 0].set_title(r"RT vs. $J_{11}$, coloured by $J_{12}$")
+    fig.colorbar(sc, ax=axs[1, 0], shrink=0.85).set_label(r"$J_{12}$ (nA)")
+    for a in (axs[0, 1], axs[0, 2], axs[1, 0]):
+        a.set_ylabel(r"mean correct RT (ms), $c'=6.4\,\%$")
+    axs[0, 1].legend(handles=[Line2D([], [], marker=marks[k], color="grey", ls="", label=rf"$\sigma$={s:.3f}")
+                              for k, s in enumerate(sig)], frameon=False, fontsize=8, loc="upper right")
+    # (e, f) cross-validated R^2 of the competing models
+    models = [("sigma", r"$\sigma$"), ("J12", r"$J_{12}$"), ("J11", r"$J_{11}$"), ("lam", r"$\lambda_u$"),
+              ("geo", r"$\lambda_u,d$"), ("J11J12", r"$J_{11},J_{12}$"), ("quad", r"quad($J_{11},J_{12}$)"),
+              ("geo_quad", r"quad($\lambda_u,d$)")]
+    cols = [GREY, SKY, BLUE, ORANGE, VERM, "#08306B", "#4D4D4D", PINK]
+    for ax, key, ttl, l in ((axs[1, 1], "rt", r"Out-of-sample: $\log$ RT$_{\rm correct}$", "e"),
+                            (axs[1, 2], "acc", "Out-of-sample: accuracy", "f")):
+        cv = [H["models"][m][key]["cv_r2"] for m, _ in models]
+        r2 = [H["models"][m][key]["r2"] for m, _ in models]
+        xx = np.arange(len(models))
+        ax.bar(xx, cv, color=cols, edgecolor="k", linewidth=0.5)
+        ax.plot(xx, r2, "k_", ms=14, mew=1.8)
+        ax.set_xticks(xx)
+        ax.set_xticklabels([n for _, n in models], rotation=40, ha="right", fontsize=8)
+        ax.set_ylabel(r"grouped CV $R^2$ (bars); in-sample $R^2$ (ticks)")
+        ax.set_ylim(0, 1.05)
+        ax.set_title(ttl)
+    for a, l in zip(axs.ravel(), "abcdef"):
+        panel_label(a, l)
+    save(fig, "fig9_grid2d")
+
+
+# --------------------------------------------------------------------------- #
+# Fig 10 - tripartite dissociation
+# --------------------------------------------------------------------------- #
+
+def fig_tripartite(R):
+    from .experiments import _crossing
+    P, T, cfg, p = R["prem"], R["trap"], R["cfg"], R["params"]
+    fig, axs = plt.subplots(1, 3, figsize=(16.0, 5.0))
+    # (a) Kramers-type escape: calibration of premature-response probability
+    ax = axs[0]
+    for key, col, lab, mk in (("sigma", GREY, r"$\log\sigma$ only", "o"),
+                              ("param", SKY, r"$\log\sigma$, $J_{11}$, $J_{12}$", "s"),
+                              ("kramers_p", BLUE, r"Kramers: $\log\sigma,\ d_0/\sigma^p$", "D")):
+        r = P["models"][key]
+        ax.scatter(r["pred"], P["obs"], s=22, color=col, marker=mk, alpha=0.75, edgecolor="none",
+                   label=rf"{lab} (pseudo-$R^2$={r['r2']:.2f})")
+    ax.plot([0, 1], [0, 1], "k--", lw=1)
+    ax.set_xlabel("predicted P(premature)")
+    ax.set_ylabel("observed P(premature)")
+    ax.set_title("1  Noise-driven escape from rest")
+    ax.legend(frameon=False, fontsize=8, loc="upper left")
+    # (b) sub-threshold trapping
+    ax = axs[1]
+    ax.plot(T["J11_grid"], T["r_att_curve"], color=BLUE, lw=2, label="choice-attractor rate")
+    ax.axhline(T["theta"], color="k", ls="--", lw=1.3, label=rf"read-out threshold $\theta$={T['theta']:.1f} Hz")
+    for v, _, _ in R["bif"]["trans_J11"][0.0][:2]:
+        ax.axvline(v, color=GREY, ls=":", lw=1.2)
+    ax.set_xlabel(r"self-excitation $J_{11}$ (nA)")
+    ax.set_ylabel("winning rate at the attractor (Hz)", color=BLUE)
+    ax.set_ylim(15, 36)
+    ax2 = ax.twinx()
+    ax2.spines["right"].set_visible(True)
+    G11 = R["sweep11"]
+    j = int(np.argmin(np.abs(G11["sigmas"] - 0.02)))
+    ax2.plot(G11["xs"], G11["p_nodec"][:, j, 1, R["k_th"]], "o-", color=VERM, ms=4,
+             label=rf"timeouts ($\sigma$={G11['sigmas'][j]:.3f})")
+    ax2.set_ylabel("no-decision rate", color=VERM)
+    ax2.set_ylim(0, 1.02)
+    h1, l1 = ax.get_legend_handles_labels()
+    h2, l2 = ax2.get_legend_handles_labels()
+    ax.legend(h1 + h2, l1 + l2, frameon=False, fontsize=8, loc="center right")
+    ax.set_xlim(0.20, 0.30)
+    ax.set_title("2  Sub-threshold attractor trapping")
+    # (c) behavioural blindness to loss of WTA
+    ax = axs[2]
+    G = R["sweep"]
+    j = int(np.argmin(np.abs(G["sigmas"] - 0.02)))
+    kk = R["k_th"]
+    xs = G["xs"]
+    acc = G["acc"][:, j, 1, kk]
+    rt = G["rt_mean"][:, j, 1, kk]
+    ax.plot(xs, acc, "o-", color=BLUE, ms=4, label="accuracy")
+    ax.plot(xs, rt / np.nanmax(rt), "s-", color=GREY, ms=4, label="mean RT (normalised)")
+    ax.set_ylim(0.4, 1.05)
+    ax.set_xlabel(r"cross-inhibition $J_{12}$ (nA)")
+    ax.set_ylabel("behavioural metrics", color=BLUE)
+    ax3 = ax.twinx()
+    ax3.spines["right"].set_visible(True)
+    ax3.plot(xs, G["r_other"][:, j, 1, kk], "^-", color=VERM, ms=5, label="losing-population rate")
+    ax3.set_ylabel("rate of losing population (Hz)", color=VERM)
+    ax3.set_ylim(0, 16)
+    bif = R["bif"]["trans"][12.8][0][0]
+    ax.axvspan(xs.min() - 0.003, bif, facecolor="none", edgecolor="k", hatch="//", alpha=0.35, lw=0)
+    ax.axvline(bif, color="k", ls="--", lw=1.2)
+    ax.set_xlim(xs.min() - 0.003, xs.max() + 0.003)
+    h1, l1 = ax.get_legend_handles_labels()
+    h2, l2 = ax3.get_legend_handles_labels()
+    ax.legend(h1 + h2, l1 + l2, frameon=False, fontsize=8, loc="upper center", bbox_to_anchor=(0.5, -0.18), ncol=2)
+    ax.set_title("3  Blindness to loss of competition")
+    for a, l in zip(axs, "abc"):
+        panel_label(a, l)
+    save(fig, "fig10_tripartite")
+
+
 def make_all(R):
     set_style()
     for fn in (fig_phase_portrait, fig_behavior, fig_bifurcation, fig_regime_map, fig_geometry_h1,
-               fig_landscape, fig_sensitivity, fig_j11_sweep):
+               fig_landscape, fig_sensitivity, fig_j11_sweep, fig_grid2d, fig_tripartite):
         fn(R)

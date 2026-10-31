@@ -40,11 +40,19 @@ class Config:
     J12_range: tuple = (0.015, 0.085)
     J11_range: tuple = (0.215, 0.285)
     sigma_range: tuple = (0.004, 0.080)
+    # joint (J11, J12) bistable grid
+    J11_2d: tuple = (0.250, 0.285)
+    J12_2d: tuple = (0.060, 0.100)
+    n_2d: int = 7
+    sigmas_2d: tuple = (0.015, 0.020, 0.025)
+    n_trials_2d: int = 300
+    coh_2d: float = 6.4
     extra: dict = field(default_factory=dict)
 
     def __post_init__(self):
         if self.quick:
             self.n_baseline, self.n_sweep, self.n_grid = 200, 100, 7
+            self.n_2d, self.n_trials_2d = 4, 60
 
     @property
     def J12_grid(self):
@@ -394,6 +402,231 @@ def run_landscape(p: Params, cfg: Config) -> dict:
 
 
 # --------------------------------------------------------------------------- #
+# Joint (J11, J12) bistable grid: does a single geometric scalar collapse 2D variation?
+# --------------------------------------------------------------------------- #
+
+def run_2d(p: Params, cfg: Config, theta: float) -> dict:
+    """Stochastic trials and deterministic geometry on a 2D (J11, J12) grid.
+
+    Cells are retained only if the symmetric winner-take-all structure (diagonal saddle and two
+    off-diagonal attractors with winning rate above ``theta``) exists at 0 % coherence.
+    """
+    J11s = np.linspace(*cfg.J11_2d, cfg.n_2d)
+    J12s = np.linspace(*cfg.J12_2d, cfg.n_2d)
+    sig = np.asarray(cfg.sigmas_2d, float)
+    n1, n2, ns = len(J11s), len(J12s), len(sig)
+    G = dict(J11s=J11s, J12s=J12s, sigmas=sig, coh=cfg.coh_2d, theta=theta, n_trials=cfg.n_trials_2d)
+    keep = np.zeros((n1, n2), bool)
+    geo = {k: np.full((n1, n2), np.nan) for k in ("lam_u", "lam_s", "d", "d_saddle", "lam_sp", "d_barrier", "r_att")}
+    mets = {m: np.full((n1, n2, ns), np.nan) for m in METRICS + ("n_corr", "n_err")}
+    t0 = time.time()
+    for i, a in enumerate(J11s):
+        for j, b in enumerate(J12s):
+            pp = p.with_(J11=float(a), J12=float(b))
+            keep[i, j] = an.is_bistable_wta(pp, theta)
+            g = an.geometry(pp, cfg.coh_2d)
+            sg = an.spontaneous_geometry(pp)
+            for k, v in dict(lam_u=g["lam_u"], lam_s=g["lam_s"], d=g["d"], d_saddle=g["d_saddle"],
+                             lam_sp=sg["lam_sp"], d_barrier=sg["d_barrier"],
+                             r_att=an.attractor_rate(pp, 0.0)).items():
+                geo[k][i, j] = v
+            if not keep[i, j]:
+                continue
+            s0 = an.spontaneous_state(pp)
+            for k, s in enumerate(sig):
+                seed = cfg.seed + 30_000_000 + ((i * n2 + j) * ns + k) * 1000
+                ch, rt, pr, ro = run_condition(pp.with_(sigma=float(s)), cfg.coh_2d, cfg.n_trials_2d, seed,
+                                               [theta], cfg, s0=s0)
+                sm = summarize(ch, rt, pr, ro)
+                for m in mets:
+                    mets[m][i, j, k] = sm[m][0]
+        log(f"   2D grid row {i + 1}/{n1} ({time.time() - t0:.0f}s)")
+    G.update(keep=keep, **{f"g_{k}": v for k, v in geo.items()}, **mets)
+    # geometry of the iso-contours
+    G["angle"] = an.gradient_angles(J11s, J12s, np.log(geo["lam_u"]), geo["d"])
+    return G
+
+
+def _poly_r2(x, y, deg=2):
+    """In-sample and leave-one-out R^2 of a polynomial fit y ~ poly(x)."""
+    c = np.polyfit(x, y, deg)
+    ss = ((y - y.mean()) ** 2).sum()
+    r2 = 1 - ((y - np.polyval(c, x)) ** 2).sum() / ss
+    loo = np.empty(len(y))
+    for k in range(len(y)):
+        m = np.arange(len(y)) != k
+        loo[k] = y[k] - np.polyval(np.polyfit(x[m], y[m], deg), x[k])
+    return float(r2), float(1 - (loo ** 2).sum() / ss)
+
+
+def analyze_2d(G: dict) -> dict:
+    """Model comparison and collapse tests on the 2D (J11, J12) x sigma dataset."""
+    J11s, J12s, sig = G["J11s"], G["J12s"], G["sigmas"]
+    A, B, S = np.meshgrid(J11s, J12s, sig, indexing="ij")
+    cell = np.repeat((np.arange(len(J11s))[:, None] * len(J12s) + np.arange(len(J12s))[None, :])[:, :, None],
+                     len(sig), 2)
+    lam = np.repeat(G["g_lam_u"][:, :, None], len(sig), 2)
+    d = np.repeat(G["g_d"][:, :, None], len(sig), 2)
+    keep = np.repeat(G["keep"][:, :, None], len(sig), 2)
+    ok = keep & np.isfinite(lam) & np.isfinite(d) & (G["n_dec"] >= 50) & np.isfinite(G["rt_corr"])
+    ok &= (G["p_prem"] < 0.05) & (G["p_nodec"] < 0.05)
+    sel = ok.ravel()
+    f = lambda z: z.ravel()[sel]
+    J11, J12, sg, ll, dd, grp = f(A), f(B), f(S), np.log(f(lam)), f(d), f(cell)
+    feats = {
+        "sigma": ([sg], ["sigma"]),
+        "J12": ([J12, sg], ["J12", "sigma"]),
+        "J11": ([J11, sg], ["J11", "sigma"]),
+        "lam": ([ll, sg], ["log_lambda_u", "sigma"]),
+        "geo": ([ll, dd, sg], ["log_lambda_u", "d", "sigma"]),
+        "J11J12": ([J11, J12, sg], ["J11", "J12", "sigma"]),
+        "quad": ([J11, J12, J11 ** 2, J12 ** 2, J11 * J12, sg], ["J11", "J12", "J11^2", "J12^2", "J11*J12", "sigma"]),
+        "lam_J": ([ll, J11, J12, sg], ["log_lambda_u", "J11", "J12", "sigma"]),
+        # flexible geometric model with as many terms as the quadratic circuit model
+        "geo_quad": ([ll, np.log(dd), ll ** 2, np.log(dd) ** 2, ll * np.log(dd), sg],
+                     ["log_lambda_u", "log_d", "ll^2", "ld^2", "ll*ld", "sigma"]),
+        # exploratory (defined after seeing the data): separatrix distance alone
+        "d": ([np.log(dd), sg], ["log_d", "sigma"]),
+    }
+    y_rt = np.log(f(G["rt_corr"]))
+    k_err, n_dec, k_cor = f(G["n_err"]), f(G["n_dec"]), f(G["n_corr"])
+    out = dict(n=int(sel.sum()), n_cells=int(G["keep"].sum()), n_total=int(G["keep"].size), models={})
+    for m, (cols, names) in feats.items():
+        X = np.column_stack(cols)
+        out["models"][m] = dict(
+            rt=an.ols(X, y_rt, names, groups=grp, shuffle_groups=True),
+            acc=an.binom_glm(X, k_cor, n_dec, names, groups=grp, shuffle_groups=True))
+    for t in ("rt", "acc"):                      # relative AIC (smaller is better)
+        mn = min(out["models"][m][t]["aic"] for m in feats)
+        for m in feats:
+            out["models"][m][t]["daic"] = out["models"][m][t]["aic"] - mn
+    # manifold-collapse test: one-variable quadratic fits of log RT_correct, separately per sigma
+    col = {}
+    for k, s in enumerate(sig):
+        m_ = ok[:, :, k]
+        y = np.log(G["rt_corr"][:, :, k][m_])
+        col[float(s)] = dict(
+            lam=_poly_r2(np.log(G["g_lam_u"][m_]), y),
+            J11=_poly_r2(G["J11s"][np.nonzero(m_)[0]], y),
+            J12=_poly_r2(G["J12s"][np.nonzero(m_)[1]], y),
+            n=int(m_.sum()))
+    out["collapse"] = col
+    out["corr_d_J11"] = float(np.corrcoef(dd, J11)[0, 1])
+    out["corr_d_J12"] = float(np.corrcoef(dd, J12)[0, 1])
+    # geometry of the iso-contours
+    ang = G["angle"][G["keep"] & np.isfinite(G["angle"])]
+    m_ = G["keep"] & np.isfinite(G["g_lam_u"]) & np.isfinite(G["g_d"])
+    rho = stats.spearmanr(G["g_lam_u"][m_], G["g_d"][m_])
+    # pairs of cells with (nearly) equal lambda_u but different d
+    L, D = G["g_lam_u"][m_], G["g_d"][m_]
+    iu = np.triu_indices(len(L), 1)
+    close = np.abs(np.log(L[iu[0]] / L[iu[1]])) < 0.02
+    dd_pairs = np.abs(D[iu[0]] - D[iu[1]])[close]
+    out["geometry"] = dict(median_angle=float(np.median(ang)), frac_over30=float(np.mean(ang > 30)),
+                           spearman_lam_d=(float(rho.statistic), float(rho.pvalue)),
+                           n_equal_lam_pairs=int(close.sum()),
+                           max_dd_equal_lam=float(dd_pairs.max()) if len(dd_pairs) else float("nan"),
+                           d_range=(float(np.nanmin(D)), float(np.nanmax(D))),
+                           lam_range=(float(L.min()), float(L.max())))
+    out["mask"] = ok
+    return out
+
+
+# --------------------------------------------------------------------------- #
+# Kramers-type escape model for premature responses
+# --------------------------------------------------------------------------- #
+
+def analyze_premature(G: dict, geo: dict, cfg: Config, k_th: int, G11: dict, geo11: dict) -> dict:
+    """Binomial models of the premature-response probability.
+
+    Premature responses are noise-activated escapes from the resting state before stimulus
+    onset, so both coherence conditions are pooled.  The Kramers-like model is
+    logit P = b0 + b1 log(sigma) + b2 d0 / sigma^p with the exponent p profiled on a grid.
+    Data: the (J12, sigma) sweep (J11 fixed) pooled with the (J11, sigma) sweep (J12 fixed), so
+    that the barrier proxy d0 can be compared with the two circuit parameters themselves.
+    """
+    rows = []
+    for Gs, g, name, base in ((G, geo, "J12", Params().J11), (G11, geo11, "J11", Params().J12)):
+        xs, sg, n = Gs["xs"], Gs["sigmas"], Gs["n"]
+        P = Gs["p_prem"][:, :, :, k_th]
+        for i, x in enumerate(xs):
+            for j, s in enumerate(sg):
+                j12, j11 = (x, base) if name == "J12" else (base, x)
+                rows.append((f"{name}{i}", j11, j12, s, g["d_barrier"][i], np.round(P[i, j] * n).sum(), n * P.shape[2]))
+    R_ = np.array([r[1:] for r in rows], float)
+    grp = np.array([r[0] for r in rows])
+    keep = np.isfinite(R_[:, 3])            # circuits with a resting-state saddle (d0 defined)
+    R_, grp = R_[keep], grp[keep]
+    J11, J12, S, d0, k, N = R_.T
+    fit = lambda X, nm: an.binom_glm(X, k, N, nm, groups=grp, shuffle_groups=True)
+    out = dict(n_rows=int(len(k)), n_circuits=int(len(set(grp))), n_rows_with_events=int((k > 0).sum()), models={})
+    out["models"]["sigma"] = fit(np.column_stack([np.log(S)]), ["log_sigma"])
+    out["models"]["param"] = fit(np.column_stack([np.log(S), J11, J12]), ["log_sigma", "J11", "J12"])
+    out["models"]["param_quad"] = fit(np.column_stack([np.log(S), J11, J12, J11 ** 2, J12 ** 2, J11 * J12]),
+                                      ["log_sigma", "J11", "J12", "J11^2", "J12^2", "J11*J12"])
+    out["models"]["d0"] = fit(np.column_stack([d0]), ["d0"])
+    out["models"]["additive"] = fit(np.column_stack([np.log(S), d0]), ["log_sigma", "d0"])
+    out["models"]["kramers2"] = fit(np.column_stack([d0 ** 2 / S ** 2]), ["d0^2/sigma^2"])
+    best = None
+    for pe in np.arange(0.5, 4.01, 0.25):
+        m = fit(np.column_stack([np.log(S), d0 / S ** pe]), ["log_sigma", "d0/sigma^p"])
+        if best is None or m["deviance"] < best[1]["deviance"]:
+            best = (float(pe), m)
+    out["p_exponent"], out["models"]["kramers_p"] = best
+    for t in out["models"].values():
+        pass
+    mn = min(m["aic"] for m in out["models"].values())
+    for m in out["models"].values():
+        m["daic"] = m["aic"] - mn
+    out["d0_range"] = (float(d0.min()), float(d0.max()))
+    out["obs"] = k / N
+    out["sigma_rows"] = S
+    out["corr_d0_J11"] = float(np.corrcoef(d0, J11)[0, 1])
+    out["corr_d0_J12"] = float(np.corrcoef(d0, J12)[0, 1])
+    # boundary-level analysis on the J12 sweep at two premature-response criteria
+    xs, sg = G["xs"], G["sigmas"]
+    pm = G["p_prem"][:, :, :, k_th].mean(2)
+    for crit in (0.10, 0.20):
+        sc = np.array([_crossing(sg, pm[i], crit, "up") for i in range(len(xs))])
+        m = np.isfinite(sc)
+        r = {"n": int(m.sum())}
+        if m.sum() >= 4:
+            lin = stats.linregress(geo["d_barrier"][m], sc[m])
+            r.update(r2=float(lin.rvalue ** 2), rho=float(stats.spearmanr(geo["d_barrier"][m], sc[m]).statistic))
+        out[f"boundary_{int(crit * 100)}"] = r
+    return out
+
+
+def check_rest_stability(R: dict) -> dict:
+    """Is the pre-stimulus resting state locally stable everywhere we simulate?"""
+    p, cfg = R["params"], R["cfg"]
+    sets = dict(J12_sweep=R["geo"]["lam_sp"], J11_sweep=R["geo11"]["lam_sp"], grid2d=R["grid2d"]["g_lam_sp"][R["grid2d"]["keep"]])
+    out = {k: dict(n=int(np.isfinite(v).sum()), n_unstable=int(np.sum(np.asarray(v) >= 0)),
+                   lam_max=float(np.nanmax(v))) for k, v in sets.items()}
+    out["total_unstable"] = int(sum(v["n_unstable"] for v in out.values()))
+    out["total"] = int(sum(v["n"] for k, v in out.items() if isinstance(v, dict)))
+    return out
+
+
+def run_trapping(p: Params, cfg: Config, theta: float, J11: float = 0.235) -> dict:
+    """Sub-threshold attractor trapping: final state of timed-out trials at weak J11."""
+    pp = p.with_(J11=J11)
+    n = 200 if not cfg.quick else 40
+    t, tr, out = simulate_traces(pp, 12.8, n, cfg.seed + 4242, theta, dt=cfg.dt, t_pre=cfg.t_pre,
+                                 t_max=cfg.t_max)
+    from .model import rate_from_S
+    final = rate_from_S(tr[:, -2, :], pp)   # last fully recorded sample
+    lead = final.max(1)
+    to = out["choice"] == 0
+    r_att = an.attractor_rate(pp, 12.8)
+    grid = np.linspace(0.20, 0.30, 41 if not cfg.quick else 21)
+    return dict(J11=J11, n=n, theta=theta, r_att=r_att, p_timeout=float(to.mean()), n_timeout=int(to.sum()),
+                lead_rate_timeouts=lead[to], mean_lead_timeouts=float(lead[to].mean()) if to.any() else float("nan"),
+                frac_near_attractor=float(np.mean(np.abs(lead[to] - r_att) < 3.0)) if to.any() else float("nan"),
+                J11_grid=grid, r_att_curve=np.array([an.attractor_rate(p.with_(J11=float(g)), 0.0) for g in grid]))
+
+
+# --------------------------------------------------------------------------- #
 # Orchestration
 # --------------------------------------------------------------------------- #
 
@@ -448,4 +681,15 @@ def run_all(cfg: Config) -> dict:
 
     log("Empirical landscape ...")
     R["landscape"] = run_landscape(p, cfg)
+
+    log(f"Joint (J11, J12) bistable grid: {cfg.n_2d}x{cfg.n_2d}, {cfg.n_trials_2d} trials, "
+        f"sigma in {cfg.sigmas_2d} ...")
+    R["grid2d"] = run_2d(p, cfg, cal["theta"])
+    R["h1_2d"] = analyze_2d(R["grid2d"])
+    log("Premature-response (Kramers-type) model, resting-state stability, attractor trapping ...")
+    sg11 = [an.spontaneous_geometry(p.with_(J11=float(x))) for x in R["sweep11"]["xs"]]
+    R["geo11"] = dict(d_barrier=np.array([s["d_barrier"] for s in sg11]), lam_sp=np.array([s["lam_sp"] for s in sg11]))
+    R["prem"] = analyze_premature(R["sweep"], R["geo"], cfg, k_th, R["sweep11"], R["geo11"])
+    R["rest"] = check_rest_stability(R)
+    R["trap"] = run_trapping(p, cfg, cal["theta"])
     return R
