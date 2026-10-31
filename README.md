@@ -1,4 +1,4 @@
-# 🌀 Decision-Circuit-Dynamics
+# Decision-Circuit-Dynamics
 
 **Phase-Plane Geometry Versus Structural Bifurcations: Dissociating Speed–Accuracy Control and Behavioral Failure Modes in a Reduced Cortical Decision Circuit**
 
@@ -9,6 +9,8 @@ stochastic decision speed, accuracy and behavioral failure modes (impulsive, ind
 
 Repository: <https://github.com/alitkbbl/Decision-Circuit-Dynamics>
 
+---
+
 ## 📄 Manuscript
 
 - 📘 [**Report (PDF)**](report/report.pdf) · [LaTeX source](report/report.tex)
@@ -17,19 +19,22 @@ The report is hand-maintained. The files `report/generated_numbers.tex` and `rep
 **static, frozen copies** of the numbers and tables that the report includes; no script writes into
 `report/` any more. If you change the analysis, update those files (or inline the numbers) by hand.
 
+---
+
 ## 🚀 Quick start
 
 ```bash
 git clone https://github.com/alitkbbl/Decision-Circuit-Dynamics.git
 cd Decision-Circuit-Dynamics
-pip install -r requirements.txt   # tested with Python 3.12
-python run_all.py                # all simulations, CSV tables and figures (about 6 minutes on one CPU core)
-python run_all.py --quick        # tiny smoke test (WARNING: overwrites figures with noisy ones)
-python run_all.py --plots-only   # redraw figures from results/results.pkl
-pytest -q                        # unit tests ✅
-cd report && pdflatex report.tex && pdflatex report.tex   # needs ../figures/ (create it with run_all.py)
+pip install -r requirements.txt   
+python run_all.py                
+python run_all.py --quick        
+python run_all.py --plots-only   
+pytest -q                        
 ```
 🎲 All randomness uses fixed seeds (trial `i` is seeded with `seed + i`), so every run reproduces the same results.
+
+---
 
 ## 🗂️ Layout
 
@@ -47,6 +52,8 @@ results/            CSV tables, summary.json, results.pkl (cache; git-ignored)
 report/             report.tex, report.pdf and the static number/table files it includes
 ```
 
+---
+
 ## 📊 What is computed
 
 - **Phase plane** (`fig1`): nullclines, fixed points, separatrix, basins, noisy trajectories
@@ -60,6 +67,8 @@ report/             report.tex, report.pdf and the static number/table files it 
 - **H1, joint grid** (`fig9`): 2D (J11, J12) bistable grid, collapse test and grouped cross-validation
 - **H2, tripartite dissociation** (`fig10`): premature escape, circuit-to-readout mismatch, co-activation
 
+---
+
 ## 💡 Main findings (details and numbers in the report and in `results/summary.json`)
 
 * ✅ The baseline reproduces the classic signatures: monotone psychometric and chronometric curves, errors slower than correct trials.
@@ -68,7 +77,9 @@ report/             report.tex, report.pdf and the static number/table files it 
   * *Impulsivity*: premature responses occur while the resting state stays stable in every simulated circuit; their probability follows an empirical Kramers-like scaling with a geometric barrier proxy.
   * *Indecisiveness*: appears before the saddle-node of the choice attractors, because the attractor rate falls below the fixed read-out threshold (circuit-to-readout mismatch).
   * *Co-activation*: loss of winner-take-all competition at weak J12 leaves accuracy and first-crossing RT smooth; the losing-population rate reveals it.
-* 🌊 The empirical double-well landscape collapses at the noise level where accuracy breaks down.
+* The empirical double-well landscape collapses at the noise level where accuracy breaks down.
+
+---
 
 ## ⚠️ Notes and caveats
 
@@ -76,6 +87,8 @@ report/             report.tex, report.pdf and the static number/table files it 
 * Regime labels are operational and depend on preset cut-offs and on the read-out threshold.
 * d and d₀ are geometric proxies; the system is non-gradient and no quasi-potential was computed.
 * **All references in the report are to be verified manually against the original sources** (authors, volume, pages, DOI) before submission.
+
+---
 
 ## 👤 Author
 
