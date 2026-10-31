@@ -49,16 +49,16 @@ report/             report.tex, report.pdf and the static number/table files it 
 
 ## 📊 What is computed
 
-- 🗺️ **Phase plane** (`fig1`): nullclines, fixed points, separatrix, basins, noisy trajectories
-- ⏱️ **Baseline** (`fig2`): psychometric/chronometric curves, error vs. correct RT, RT distributions
-- 🔀 **Bifurcations** (`fig3`): fixed points vs. cross-inhibition J12, (J12, coherence) map
-- 🌡️ **Regime map** (`fig4`): accuracy, RT, premature responses, losing-population rate, regimes over (J12, σ)
-- 📐 **H1, one-parameter sweep** (`fig5`): λᵤ, d, σ as predictors of RT and error rate along J12
-- ⛰️ **Landscape** (`fig6`): empirical −log P and its noise dependence
-- 🔍 **Sensitivity** (`fig7`): read-out threshold fraction and integration step
-- ➕ **J11 sweep** (`fig8`): (J11, σ) sweep, where the *indecisive* regime appears
-- 🔲 **H1, joint grid** (`fig9`): 2D (J11, J12) bistable grid, collapse test and grouped cross-validation
-- 🧩 **H2, tripartite dissociation** (`fig10`): premature escape, circuit-to-readout mismatch, co-activation
+- **Phase plane** (`fig1`): nullclines, fixed points, separatrix, basins, noisy trajectories
+- **Baseline** (`fig2`): psychometric/chronometric curves, error vs. correct RT, RT distributions
+- **Bifurcations** (`fig3`): fixed points vs. cross-inhibition J12, (J12, coherence) map
+- **Regime map** (`fig4`): accuracy, RT, premature responses, losing-population rate, regimes over (J12, σ)
+- **H1, one-parameter sweep** (`fig5`): λᵤ, d, σ as predictors of RT and error rate along J12
+- **Landscape** (`fig6`): empirical −log P and its noise dependence
+- **Sensitivity** (`fig7`): read-out threshold fraction and integration step
+- **J11 sweep** (`fig8`): (J11, σ) sweep, where the *indecisive* regime appears
+- **H1, joint grid** (`fig9`): 2D (J11, J12) bistable grid, collapse test and grouped cross-validation
+- **H2, tripartite dissociation** (`fig10`): premature escape, circuit-to-readout mismatch, co-activation
 
 ## 💡 Main findings (details and numbers in the report and in `results/summary.json`)
 
