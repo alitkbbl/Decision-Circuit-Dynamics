@@ -79,15 +79,6 @@ report/             report.tex, report.pdf and the static number/table files it 
 
 ---
 
-## ⚠️ Notes and caveats
-
-* The read-out threshold is θ = 0.75 × the baseline winning-attractor rate, held fixed across all sweeps; the integration step is 0.5 ms (convergence checked over four steps).
-* Regime labels are operational and depend on preset cut-offs and on the read-out threshold.
-* d and d₀ are geometric proxies; the system is non-gradient and no quasi-potential was computed.
-* **All references in the report are to be verified manually against the original sources** (authors, volume, pages, DOI) before submission.
-
----
-
 ## 👤 Author
 
 Ali Taghizadeh — Department of Mathematics and Computer Science, Amirkabir University of Technology (Tehran Polytechnic), Tehran, Iran
