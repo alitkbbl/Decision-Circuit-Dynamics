@@ -7,13 +7,11 @@ Code and results for a computational study of the two-population NMDA-dominated 
 phase-plane geometry (saddle eigenvalue, separatrix distance) and structural bifurcations relate to
 stochastic decision speed, accuracy and behavioral failure modes (impulsive, indecisive, co-activation). 🔬
 
-Repository: <https://github.com/alitkbbl/Decision-Circuit-Dynamics>
-
 ---
 
 ## 📄 Manuscript
 
-- 📘 [**Report (PDF)**](report/report.pdf) · [LaTeX source](report/report.tex)
+- 📘 [**Report (PDF)**](report/report.pdf) 
 
 The report is hand-maintained. The files `report/generated_numbers.tex` and `report/table_*.tex` are
 **static, frozen copies** of the numbers and tables that the report includes; no script writes into
